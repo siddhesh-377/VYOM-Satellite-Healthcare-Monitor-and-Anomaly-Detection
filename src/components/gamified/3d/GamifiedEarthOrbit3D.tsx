@@ -177,20 +177,42 @@ function AnimatedOrbitSatellite({
 
   return (
     <group ref={satelliteGroupRef}>
-      {/* Mini 3D Satellite Model */}
-      <mesh>
-        <boxGeometry args={[0.2, 0.2, 0.25]} />
-        <meshStandardMaterial color="#d4af37" metalness={0.9} roughness={0.2} />
-      </mesh>
-      {/* Solar Wings */}
-      <mesh position={[-0.28, 0, 0]}>
-        <boxGeometry args={[0.3, 0.12, 0.02]} />
-        <meshStandardMaterial color="#1e3a8a" emissive="#00d4ff" emissiveIntensity={0.2} />
-      </mesh>
-      <mesh position={[0.28, 0, 0]}>
-        <boxGeometry args={[0.3, 0.12, 0.02]} />
-        <meshStandardMaterial color="#1e3a8a" emissive="#00d4ff" emissiveIntensity={0.2} />
-      </mesh>
+      {/* Mini High-Fidelity 3D Satellite Model */}
+      <group scale={[0.22, 0.22, 0.22]}>
+        {/* Central Spacecraft Bus (Gold MLI) */}
+        <mesh>
+          <boxGeometry args={[0.9, 0.85, 1.1]} />
+          <meshStandardMaterial color="#c4922c" metalness={0.9} roughness={0.35} />
+        </mesh>
+        {/* Longerons / Framework */}
+        <mesh>
+          <boxGeometry args={[0.94, 0.89, 1.14]} />
+          <meshStandardMaterial color="#b2b6bb" metalness={1.0} roughness={0.3} wireframe={true} />
+        </mesh>
+        {/* Nadir Payload Aperture pointing towards Earth */}
+        <mesh position={[0, 0, 0.6]}>
+          <cylinderGeometry args={[0.22, 0.25, 0.15, 24]} />
+          <meshStandardMaterial color="#202124" metalness={0.8} roughness={0.2} />
+        </mesh>
+        {/* Solar Wings with GaAs Triple-Junction appearance */}
+        <group position={[-1.3, 0, 0]}>
+          <mesh>
+            <boxGeometry args={[1.4, 0.65, 0.03]} />
+            <meshStandardMaterial color="#1a2544" metalness={0.6} roughness={0.3} emissive="#00d4ff" emissiveIntensity={0.25} />
+          </mesh>
+        </group>
+        <group position={[1.3, 0, 0]}>
+          <mesh>
+            <boxGeometry args={[1.4, 0.65, 0.03]} />
+            <meshStandardMaterial color="#1a2544" metalness={0.6} roughness={0.3} emissive="#00d4ff" emissiveIntensity={0.25} />
+          </mesh>
+        </group>
+        {/* High-Gain Parabolic Dish */}
+        <mesh position={[0, 0.55, 0]} rotation={[-0.4, 0, 0]}>
+          <sphereGeometry args={[0.35, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2.6]} />
+          <meshStandardMaterial color="#dedfd9" metalness={0.7} roughness={0.3} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
 
       {/* ── NADIR COVERAGE FOOTPRINT CONE ── */}
       <group rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -radius * 0.45]}>
