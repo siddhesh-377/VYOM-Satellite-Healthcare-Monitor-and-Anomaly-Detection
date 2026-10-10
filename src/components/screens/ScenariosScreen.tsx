@@ -20,7 +20,7 @@ const THREATS = [
     id: 'thermal-failure',
     name: 'THERMAL EVENT',
     icon: '🌡',
-    description: 'Extreme thermal excursion — payload cooling failure, temperature thresholds exceeded.',
+    description: 'Extreme thermal excursion — payload cooling failure, radiator temperature thresholds exceeded.',
     severity: 'critical' as const,
     affectedSubsystem: 'Cryogenic Radiators & Heat Shield (TCS)',
     effects: { thermal: 8 },
@@ -31,7 +31,7 @@ const THREATS = [
     id: 'power-failure',
     name: 'POWER FAILURE',
     icon: '⚡',
-    description: 'Solar panel degradation — battery drain, emergency load shedding required.',
+    description: 'Solar panel degradation — battery DoD threshold crossed, bus voltage drop.',
     severity: 'critical' as const,
     affectedSubsystem: 'Electrical Power (EPS / Solar Arrays)',
     effects: { power: 7 },
@@ -42,9 +42,9 @@ const THREATS = [
     id: 'communication-failure',
     name: 'COMM FAILURE',
     icon: '📡',
-    description: 'Communication blackout — antenna fault or severe signal interference.',
+    description: 'Communication blackout — high-gain antenna pointing loss or RF transponder attenuation.',
     severity: 'warning' as const,
-    affectedSubsystem: 'High-Gain Antenna (HGA/RF Transponder)',
+    affectedSubsystem: 'High-Gain Antenna (HGA / RF Transponder)',
     effects: { comms: 9 },
     color: '#9b5de5',
     primaryParamId: 'rfDownlinkDb',
@@ -53,7 +53,7 @@ const THREATS = [
     id: 'attitude-failure',
     name: 'ATTITUDE ERROR',
     icon: '🎯',
-    description: 'Attitude control system anomaly — spacecraft tumbling, solar panel misalignment.',
+    description: 'Attitude control anomaly — reaction wheel saturation, body tumbling, solar panel misalignment.',
     severity: 'warning' as const,
     affectedSubsystem: 'Reaction Wheels & Star Trackers (ADCS)',
     effects: { attitude: 8 },
@@ -64,9 +64,9 @@ const THREATS = [
     id: 'solar-storm',
     name: 'SOLAR STORM',
     icon: '☀',
-    description: 'Intense solar particle event — radiation spike, communication interference, thermal increase.',
+    description: 'Intense coronal mass ejection — radiation dose surge, solar array current spike.',
     severity: 'critical' as const,
-    affectedSubsystem: 'Thermal & Power (TCS/EPS)',
+    affectedSubsystem: 'Thermal & Power (TCS / EPS)',
     effects: { radiation: 8, solar: 6, thermal: 5 },
     color: '#ff8c00',
     primaryParamId: 'solarArrayCurrentA',
@@ -75,7 +75,7 @@ const THREATS = [
     id: 'asteroid',
     name: 'ASTEROID IMPACT',
     icon: '☄',
-    description: 'Near-miss asteroid debris — microimpact damage to outer panels, attitude disturbance.',
+    description: 'Micrometeoroid debris strike — structural shock, gyro slew rate excursion, panel puncture.',
     severity: 'critical' as const,
     affectedSubsystem: 'Structural & ADCS Gyros',
     effects: { asteroid: 4 },
@@ -86,36 +86,39 @@ const THREATS = [
     id: 'debris',
     name: 'SPACE DEBRIS',
     icon: '⚙',
-    description: 'High-density debris field — evasive maneuvers required, fuel consumption elevated.',
+    description: 'High-density orbital debris threat — collision avoidance maneuver, elevated fuel and thermal loop.',
     severity: 'warning' as const,
-    affectedSubsystem: 'Propulsion (OMS) & Shielding',
+    affectedSubsystem: 'Propulsion (OMS) & Whipple Shielding',
     effects: { debris: 5 },
     color: '#ff8c00',
     primaryParamId: 'payloadTempC',
   },
 ];
 
+type DrawerTab = 'overview' | 'evidence' | 'detection' | 'timeline' | 'ai' | 'what_if';
+
 export function ScenariosScreen() {
   const activeThreats = useMissionStore((s) => s.activeThreats);
   const satellite = useMissionStore((s) => s.satellite);
   const blackBox = useMissionStore((s) => s.blackBox);
-  const setScreen = useMissionStore((s) => s.setScreen);
-  const incidents = useMissionStore((s) => s.incidents);
 
   const [triggered, setTriggered] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'anomaly_detection' | 'what_if_blackbox'>('anomaly_detection');
 
   // Anomaly Pipeline State
   const [anomalies, setAnomalies] = useState<ExplainableAnomaly[]>([]);
   const [selectedAnomalyId, setSelectedAnomalyId] = useState<string | null>(null);
   const [selectedParamId, setSelectedParamId] = useState<string>('cpuTempC');
 
+  // Detail Drawer State
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>('overview');
+  const [inspectedThreat, setInspectedThreat] = useState<typeof THREATS[0] | null>(null);
+
   // Subscribe to AnomalyPipeline updates
   useEffect(() => {
     const unsub = anomalyPipeline.subscribe((list) => {
       setAnomalies([...list]);
-      // If no anomaly selected or previous anomaly resolved, pick latest active
       if (list.length > 0) {
         setSelectedAnomalyId((prev) => {
           if (!prev) return list[list.length - 1].id;
@@ -139,10 +142,12 @@ export function ScenariosScreen() {
     }
   }, [selectedAnomaly?.id]);
 
-  const handleTrigger = async (threat: typeof THREATS[0]) => {
+  const handleTrigger = async (threat: typeof THREATS[0], e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (activeThreats.length > 0) return;
     setTriggered(threat.id);
     setSelectedParamId(threat.primaryParamId);
+    setInspectedThreat(threat);
 
     const store = useMissionStore.getState();
     let injected = false;
@@ -158,6 +163,19 @@ export function ScenariosScreen() {
       );
     }
     setTimeout(() => setTriggered(null), 3000);
+  };
+
+  const handleOpenThreatDetails = (threat: typeof THREATS[0], e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setInspectedThreat(threat);
+    setSelectedParamId(threat.primaryParamId);
+    setDrawerTab('overview');
+    setDrawerOpen(true);
+  };
+
+  const handleOpenDrawerTab = (tab: DrawerTab) => {
+    setDrawerTab(tab);
+    setDrawerOpen(true);
   };
 
   const handleStopReset = useCallback(() => {
@@ -176,7 +194,9 @@ export function ScenariosScreen() {
     ? THREATS.find((t) => t.id === activeThreats[0].type || t.id === activeThreats[0].id)
     : null;
 
-  const recentEvents = blackBox.slice(-6).reverse();
+  const recentEvents = blackBox.slice(-3).reverse();
+  const activeAnomalyCount = anomalies.filter((a) => a.status !== 'resolved').length;
+  const isHealthy = activeThreats.length === 0 && activeAnomalyCount === 0;
 
   return (
     <div
@@ -188,12 +208,13 @@ export function ScenariosScreen() {
         paddingBottom: 56,
         overflow: 'hidden',
         color: '#fff',
+        position: 'relative',
       }}
     >
-      {/* ─── LEFT: Interactive 3D Spacecraft Scenario Twin (28%) ─── */}
+      {/* ─── LEFT: Interactive 3D Spacecraft Scenario Twin (27%) ─── */}
       <div
         style={{
-          flex: '0 0 28%',
+          flex: '0 0 27%',
           position: 'relative',
           borderRight: '1px solid rgba(0, 212, 255, 0.15)',
           background: '#020409',
@@ -230,66 +251,68 @@ export function ScenariosScreen() {
             />
           </Canvas>
 
-          {/* Threat / Status Top Banner */}
+          {/* Digital Twin Status Header */}
           <div
             style={{
               position: 'absolute',
-              top: 14,
-              left: 14,
-              right: 14,
+              top: 10,
+              left: 10,
+              right: 10,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              background: 'rgba(5, 14, 30, 0.88)',
+              background: 'rgba(5, 14, 30, 0.9)',
               backdropFilter: 'blur(12px)',
               border: `1px solid ${activeThreats.length > 0 ? '#ff2d55' : 'rgba(0, 212, 255, 0.25)'}`,
-              borderRadius: 8,
-              padding: '8px 12px',
+              borderRadius: 6,
+              padding: '6px 10px',
             }}
           >
             <div>
               <div
                 style={{
                   fontFamily: 'var(--font-mono, monospace)',
-                  fontSize: 8,
+                  fontSize: 7.5,
                   color: activeThreats.length > 0 ? '#ff2d55' : '#00d4ff',
-                  letterSpacing: '0.15em',
+                  letterSpacing: '0.12em',
                   fontWeight: 700,
                 }}
               >
-                {activeThreats.length > 0 ? '⚠ DIGITAL TWIN UNDER STRESS' : 'DIGITAL TWIN NOMINAL'}
+                {activeThreats.length > 0 ? '⚠ TWIN UNDER STRESS' : 'TWIN NOMINAL'}
               </div>
               <div
                 style={{
                   fontFamily: 'var(--font-body, sans-serif)',
-                  fontSize: 10.5,
+                  fontSize: 9.5,
                   color: '#fff',
-                  marginTop: 2,
+                  marginTop: 1,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: 150,
                 }}
               >
-                {activeThreatData
-                  ? `Target: ${activeThreatData.affectedSubsystem}`
-                  : 'All Subsystems Within Flight Bounds'}
+                {activeThreatData ? activeThreatData.name : 'All Subsystems OK'}
               </div>
             </div>
             {activeThreats.length > 0 && (
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
                 <button
                   onClick={handleInitiateRecovery}
                   style={{
                     background: 'rgba(0, 255, 136, 0.2)',
                     border: '1px solid #00ff88',
                     borderRadius: 4,
-                    padding: '4px 8px',
+                    padding: '3px 6px',
                     color: '#00ff88',
                     fontFamily: 'var(--font-mono, monospace)',
-                    fontSize: 8.5,
+                    fontSize: 8,
                     fontWeight: 700,
                     cursor: 'pointer',
                   }}
-                  title="Engage autonomous recovery and stabilization verification"
+                  title="Initiate autonomous recovery"
                 >
-                  ⚡ RECOVER
+                  RECOVER
                 </button>
                 <button
                   onClick={handleStopReset}
@@ -297,369 +320,951 @@ export function ScenariosScreen() {
                     background: 'rgba(255, 45, 85, 0.2)',
                     border: '1px solid #ff2d55',
                     borderRadius: 4,
-                    padding: '4px 8px',
+                    padding: '3px 6px',
                     color: '#ff2d55',
                     fontFamily: 'var(--font-mono, monospace)',
-                    fontSize: 8.5,
+                    fontSize: 8,
                     fontWeight: 700,
                     cursor: 'pointer',
                   }}
-                  title="Stop scenario and restore baseline"
+                  title="Reset simulation"
                 >
-                  ⏹ STOP SIM
+                  RESET
                 </button>
               </div>
             )}
           </div>
 
-          {/* Subsystem Health Guide Overlay */}
+          {/* Subsystem Color Legend */}
           <div
             style={{
               position: 'absolute',
-              bottom: 14,
-              left: 14,
-              right: 14,
+              bottom: 10,
+              left: 10,
+              right: 10,
               background: 'rgba(2, 6, 14, 0.88)',
-              backdropFilter: 'blur(12px)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: 8,
-              padding: '8px 12px',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: 6,
+              padding: '6px 10px',
+              fontSize: 8.5,
+              fontFamily: 'var(--font-mono, monospace)',
+              display: 'flex',
+              justifyContent: 'space-between',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8, color: 'rgba(255,255,255,0.45)' }}>
-                3D TELEMETRY MAPPING:
-              </span>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono, monospace)',
-                  fontSize: 8.5,
-                  color: activeThreats.length > 0 ? '#ff3b30' : '#00ff88',
-                  fontWeight: 700,
-                }}
-              >
-                {activeThreats.length > 0 ? 'ANOMALOUS SUBSYSTEM ACTIVATED' : 'SATELLITE HEALTH OK'}
-              </span>
-            </div>
-            <p
-              style={{
-                fontFamily: 'var(--font-body, sans-serif)',
-                fontSize: 9.5,
-                color: 'rgba(255,255,255,0.65)',
-                margin: 0,
-                lineHeight: 1.35,
-              }}
-            >
-              Visual highlights: <span style={{ color: '#ff3b30' }}>Thermal (Red)</span>,{' '}
-              <span style={{ color: '#ff9f0a' }}>Power (Amber)</span>,{' '}
-              <span style={{ color: '#bf5af2' }}>RF Comms (Purple)</span>,{' '}
-              <span style={{ color: '#00d4ff' }}>ADCS (Cyan)</span>.
-            </p>
+            <span style={{ color: '#ff3b30' }}>● Thermal</span>
+            <span style={{ color: '#ff9f0a' }}>● Power</span>
+            <span style={{ color: '#bf5af2' }}>● Comms</span>
+            <span style={{ color: '#00d4ff' }}>● ADCS</span>
           </div>
         </div>
       </div>
 
-      {/* ─── RIGHT / CENTER: EXPLAINABLE ANOMALY INVESTIGATION WORKSPACE ─── */}
+      {/* ─── RIGHT: COMPACT WORKSPACE WITH ALL 7 DANGER CARDS ─── */}
       <div
         style={{
           flex: '1 1 0',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflowY: 'auto',
+          overflowX: 'hidden',
           minWidth: 0,
+          padding: '10px 14px',
+          gap: 10,
         }}
       >
-        {/* Workspace Top Header & Navigation Tabs */}
+        {/* ─── A. COMPACT PAGE HEADER ─── */}
         <div
           style={{
-            padding: '10px 18px',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'rgba(5, 14, 30, 0.6)',
-            flexWrap: 'wrap',
-            gap: 10,
+            background: 'rgba(5, 14, 30, 0.75)',
+            border: '1px solid rgba(0, 212, 255, 0.15)',
+            borderRadius: 6,
+            padding: '6px 12px',
+            flexShrink: 0,
           }}
         >
-          <div>
-            <div
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-display, sans-serif)',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#fff',
+                letterSpacing: '0.04em',
+              }}
+            >
+              DANGER SIMULATOR · ANOMALY DETECTION
+            </span>
+
+            {/* Active Anomaly Count Badge */}
+            <span
               style={{
                 fontFamily: 'var(--font-mono, monospace)',
                 fontSize: 8.5,
-                color: 'rgba(0, 212, 255, 0.7)',
-                letterSpacing: '0.2em',
-                marginBottom: 2,
-              }}
-            >
-              MISSION SIMULATOR &amp; INVESTIGATION WORKFLOW
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-display, sans-serif)',
-                fontSize: 17,
                 fontWeight: 700,
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
+                padding: '2px 7px',
+                borderRadius: 4,
+                background:
+                  activeAnomalyCount > 0 ? 'rgba(255, 45, 85, 0.2)' : 'rgba(0, 255, 136, 0.15)',
+                border: `1px solid ${activeAnomalyCount > 0 ? '#ff2d55' : '#00ff88'}`,
+                color: activeAnomalyCount > 0 ? '#ff2d55' : '#00ff88',
               }}
             >
-              <span>DANGER SIMULATOR · EXPLAINABLE ANOMALY DETECTION</span>
-              {anomalies.filter((a) => a.status !== 'resolved').length > 0 && (
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono, monospace)',
-                    fontSize: 9,
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    background: 'rgba(255, 45, 85, 0.2)',
-                    border: '1px solid #ff2d55',
-                    color: '#ff2d55',
-                    fontWeight: 700,
-                  }}
-                >
-                  ⚠ {anomalies.filter((a) => a.status !== 'resolved').length} ACTIVE ANOMALIES
-                </span>
-              )}
-            </div>
+              {activeAnomalyCount > 0 ? `⚠ ${activeAnomalyCount} ACTIVE ANOMALY` : '0 ACTIVE ANOMALIES'}
+            </span>
+
+            {/* Overall Mission Health Indicator */}
+            <span
+              style={{
+                fontFamily: 'var(--font-mono, monospace)',
+                fontSize: 8.5,
+                fontWeight: 700,
+                padding: '2px 7px',
+                borderRadius: 4,
+                background: isHealthy ? 'rgba(0, 212, 255, 0.15)' : 'rgba(255, 140, 0, 0.2)',
+                border: `1px solid ${isHealthy ? '#00d4ff' : '#ff8c00'}`,
+                color: isHealthy ? '#00d4ff' : '#ff8c00',
+              }}
+            >
+              {isHealthy ? 'HEALTH: 100% NOMINAL' : 'HEALTH: DEGRADED'}
+            </span>
           </div>
 
-          {/* Navigation Mode Tabs */}
+          {/* Quick Actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button
-              onClick={() => setActiveTab('anomaly_detection')}
-              style={{
-                background:
-                  activeTab === 'anomaly_detection' ? 'rgba(0, 212, 255, 0.2)' : 'rgba(255, 255, 255, 0.04)',
-                border: `1px solid ${activeTab === 'anomaly_detection' ? '#00d4ff' : 'rgba(255, 255, 255, 0.1)'}`,
-                borderRadius: 6,
-                padding: '6px 12px',
-                color: activeTab === 'anomaly_detection' ? '#00d4ff' : 'rgba(255, 255, 255, 0.7)',
-                fontFamily: 'var(--font-mono, monospace)',
-                fontSize: 9,
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              ANOMALY PIPELINE &amp; TELEMETRY
-            </button>
-            <button
-              onClick={() => setActiveTab('what_if_blackbox')}
-              style={{
-                background:
-                  activeTab === 'what_if_blackbox' ? 'rgba(155, 93, 229, 0.2)' : 'rgba(255, 255, 255, 0.04)',
-                border: `1px solid ${activeTab === 'what_if_blackbox' ? '#9b5de5' : 'rgba(255, 255, 255, 0.1)'}`,
-                borderRadius: 6,
-                padding: '6px 12px',
-                color: activeTab === 'what_if_blackbox' ? '#9b5de5' : 'rgba(255, 255, 255, 0.7)',
-                fontFamily: 'var(--font-mono, monospace)',
-                fontSize: 9,
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              MISSION WHAT-IF &amp; METRICS
-            </button>
             {activeThreats.length > 0 && (
               <button
-                onClick={handleStopReset}
+                onClick={handleInitiateRecovery}
                 style={{
-                  background: 'rgba(255, 45, 85, 0.15)',
-                  border: '1px solid #ff2d55',
-                  borderRadius: 6,
-                  padding: '6px 12px',
-                  color: '#ff2d55',
+                  background: 'rgba(0, 255, 136, 0.2)',
+                  border: '1px solid #00ff88',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  color: '#00ff88',
                   fontFamily: 'var(--font-mono, monospace)',
-                  fontSize: 9,
+                  fontSize: 8,
                   fontWeight: 700,
                   cursor: 'pointer',
-                  marginLeft: 8,
                 }}
               >
-                ⏹ STOP SIM
+                ⚡ RECOVER
               </button>
+            )}
+            <button
+              onClick={handleStopReset}
+              style={{
+                background: 'rgba(255, 45, 85, 0.15)',
+                border: '1px solid rgba(255, 45, 85, 0.4)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                color: '#ff2d55',
+                fontFamily: 'var(--font-mono, monospace)',
+                fontSize: 8,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title="Stop simulation & restore nominal baseline"
+            >
+              ⏹ RESET
+            </button>
+          </div>
+        </div>
+
+        {/* ─── B. ALL SEVEN DANGER CARDS (HIGHEST PRIORITY) ─── */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+            gap: 6,
+            flexShrink: 0,
+          }}
+        >
+          {THREATS.map((threat) => {
+            const isActive = activeThreats.some((t) => t.type === threat.id || t.id === threat.id);
+            const isTriggering = triggered === threat.id;
+            const disabled = activeThreats.length > 0 && !isActive;
+
+            return (
+              <div
+                key={threat.id}
+                onClick={() => handleOpenThreatDetails(threat)}
+                onMouseEnter={() => setHoveredId(threat.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                style={{
+                  padding: '7px 8px',
+                  background: isActive
+                    ? 'rgba(255, 45, 85, 0.18)'
+                    : 'rgba(5, 14, 30, 0.8)',
+                  border: `1px solid ${isActive ? threat.color : 'rgba(255, 255, 255, 0.1)'}`,
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  opacity: disabled ? 0.45 : 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  minHeight: 74,
+                  boxShadow: isActive ? `0 0 12px ${threat.color}44` : 'none',
+                  transition: 'all 0.15s ease-in-out',
+                }}
+              >
+                {/* Card Top: Icon, Name, and Info Button */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, flexShrink: 0 }}>{threat.icon}</span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono, monospace)',
+                        fontSize: 8.5,
+                        fontWeight: 700,
+                        color: isActive ? threat.color : '#fff',
+                        letterSpacing: '0.03em',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={`${threat.name} — Click to view details`}
+                    >
+                      {threat.name}
+                    </span>
+                  </div>
+                  <span
+                    onClick={(e) => handleOpenThreatDetails(threat, e)}
+                    style={{
+                      fontSize: 9,
+                      color: 'rgba(0, 212, 255, 0.65)',
+                      cursor: 'pointer',
+                      padding: '0 2px',
+                    }}
+                    title="View technical scenario details"
+                  >
+                    ⓘ
+                  </span>
+                </div>
+
+                {/* Status Indicator */}
+                <div
+                  style={{
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize: 7.5,
+                    color: isActive ? threat.color : 'rgba(0, 212, 255, 0.6)',
+                    fontWeight: isActive ? 700 : 400,
+                    margin: '2px 0',
+                  }}
+                >
+                  {isActive ? '● ACTIVE' : isTriggering ? 'ARMING...' : 'Ready'}
+                </div>
+
+                {/* Compact Trigger Button */}
+                <button
+                  disabled={disabled || isActive}
+                  onClick={(e) => handleTrigger(threat, e)}
+                  style={{
+                    width: '100%',
+                    padding: '3px 0',
+                    background: isActive
+                      ? threat.color
+                      : isTriggering
+                      ? 'rgba(255, 140, 0, 0.3)'
+                      : 'rgba(0, 212, 255, 0.12)',
+                    border: `1px solid ${isActive ? threat.color : 'rgba(0, 212, 255, 0.3)'}`,
+                    borderRadius: 3,
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize: 7.5,
+                    fontWeight: 700,
+                    color: isActive ? '#000' : '#00d4ff',
+                    cursor: disabled || isActive ? 'not-allowed' : 'pointer',
+                    letterSpacing: '0.05em',
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  {isActive ? 'ACTIVE' : isTriggering ? 'ARMING' : 'TRIGGER'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ─── C & D. MIDDLE ROW: COMPACT TELEMETRY GRAPH + MINIMAL ANOMALY SUMMARY ─── */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 310px',
+            gap: 10,
+            flex: '1 0 auto',
+            minHeight: 280,
+          }}
+        >
+          {/* C. Compact Telemetry Graph */}
+          <div
+            style={{
+              minWidth: 0,
+              background: 'rgba(5, 14, 30, 0.65)',
+              border: '1px solid rgba(0, 212, 255, 0.18)',
+              borderRadius: 6,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <TelemetryAnomalyGraph
+              selectedParamId={selectedParamId}
+              onSelectParamId={setSelectedParamId}
+              activeAnomaly={selectedAnomaly || undefined}
+              onInspectCrossing={() => handleOpenDrawerTab('evidence')}
+            />
+          </div>
+
+          {/* D. Minimal Anomaly Summary Panel */}
+          <div
+            style={{
+              background: 'rgba(5, 14, 30, 0.75)',
+              border: `1px solid ${selectedAnomaly ? '#ff2d55' : 'rgba(0, 212, 255, 0.2)'}`,
+              borderRadius: 6,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              minWidth: 0,
+            }}
+          >
+            {selectedAnomaly ? (
+              <>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono, monospace)',
+                        fontSize: 8,
+                        color: 'rgba(255, 45, 85, 0.8)',
+                        letterSpacing: '0.1em',
+                        fontWeight: 700,
+                      }}
+                    >
+                      ACTIVE ANOMALY SUMMARY
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono, monospace)',
+                        fontSize: 8,
+                        padding: '1px 6px',
+                        borderRadius: 3,
+                        background:
+                          selectedAnomaly.severity === 'critical'
+                            ? 'rgba(255, 45, 85, 0.2)'
+                            : 'rgba(255, 149, 0, 0.2)',
+                        border: `1px solid ${
+                          selectedAnomaly.severity === 'critical' ? '#ff2d55' : '#ff9500'
+                        }`,
+                        color: selectedAnomaly.severity === 'critical' ? '#ff2d55' : '#ff9500',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {selectedAnomaly.severity.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-display, sans-serif)',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#fff',
+                      marginBottom: 8,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {selectedAnomaly.parameterName} Anomaly
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 9 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'var(--font-mono, monospace)' }}>
+                        Affected Subsystem:
+                      </span>
+                      <span style={{ color: '#00d4ff', fontWeight: 600 }}>
+                        {selectedAnomaly.affectedSubsystem}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'var(--font-mono, monospace)' }}>
+                        Primary Signal:
+                      </span>
+                      <span style={{ color: '#fff', fontFamily: 'var(--font-mono, monospace)' }}>
+                        {selectedAnomaly.parameterId}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'var(--font-mono, monospace)' }}>
+                        Current Value:
+                      </span>
+                      <span style={{ color: '#ff2d55', fontWeight: 700, fontFamily: 'var(--font-mono, monospace)' }}>
+                        {selectedAnomaly.currentValue} {selectedAnomaly.unit}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'var(--font-mono, monospace)' }}>
+                        Baseline / Deviation:
+                      </span>
+                      <span style={{ color: '#ff9500', fontFamily: 'var(--font-mono, monospace)' }}>
+                        {selectedAnomaly.baseline} ({selectedAnomaly.deviationPercent > 0 ? '+' : ''}
+                        {selectedAnomaly.deviationPercent.toFixed(1)}%)
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.45)', fontFamily: 'var(--font-mono, monospace)' }}>
+                        Detection Rule:
+                      </span>
+                      <span style={{ color: 'rgba(255,255,255,0.8)', fontFamily: 'var(--font-mono, monospace)', fontSize: 8 }}>
+                        {selectedAnomaly.detectionMethod.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button
+                    onClick={() => handleOpenDrawerTab('evidence')}
+                    style={{
+                      width: '100%',
+                      padding: '6px 0',
+                      background: 'rgba(0, 212, 255, 0.15)',
+                      border: '1px solid #00d4ff',
+                      borderRadius: 4,
+                      fontFamily: 'var(--font-mono, monospace)',
+                      fontSize: 8.5,
+                      fontWeight: 700,
+                      color: '#00d4ff',
+                      cursor: 'pointer',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    VIEW TECHNICAL DETAILS ➔
+                  </button>
+                  <button
+                    onClick={handleInitiateRecovery}
+                    style={{
+                      width: '100%',
+                      padding: '5px 0',
+                      background: 'rgba(0, 255, 136, 0.15)',
+                      border: '1px solid #00ff88',
+                      borderRadius: 4,
+                      fontFamily: 'var(--font-mono, monospace)',
+                      fontSize: 8,
+                      fontWeight: 700,
+                      color: '#00ff88',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ⚡ INITIATE AUTONOMOUS RECOVERY
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                  textAlign: 'center',
+                  gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 24, opacity: 0.6 }}>🛡️</span>
+                <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 9.5, color: '#00ff88', fontWeight: 700 }}>
+                  ALL SYSTEMS NOMINAL
+                </div>
+                <p style={{ fontFamily: 'var(--font-body, sans-serif)', fontSize: 9, color: 'rgba(255,255,255,0.5)', margin: 0, lineHeight: 1.4 }}>
+                  Zero active threshold violations across 12 telemetry channels. Click TRIGGER on any danger scenario above to evaluate real-time anomaly detection.
+                </p>
+                <button
+                  onClick={() => handleOpenDrawerTab('ai')}
+                  style={{
+                    marginTop: 6,
+                    padding: '5px 12px',
+                    background: 'rgba(0, 212, 255, 0.1)',
+                    border: '1px solid rgba(0, 212, 255, 0.3)',
+                    borderRadius: 4,
+                    color: '#00d4ff',
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize: 8,
+                    cursor: 'pointer',
+                  }}
+                >
+                  PRE-FLIGHT DIAGNOSTICS
+                </button>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Tab 1: Explainable Anomaly Detection, Live Graphs, and Root Cause */}
-        {activeTab === 'anomaly_detection' ? (
+        {/* ─── E. BOTTOM ROW: COMPACT EVENT LOG & VYOM AI ACTION BAR ─── */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.2fr 1fr',
+            gap: 10,
+            flexShrink: 0,
+            minHeight: 88,
+          }}
+        >
+          {/* Compact Event Log */}
           <div
             style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '12px 16px',
+              background: 'rgba(5, 14, 30, 0.75)',
+              border: '1px solid rgba(0, 212, 255, 0.15)',
+              borderRadius: 6,
+              padding: '8px 12px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 12,
+              justifyContent: 'space-between',
             }}
           >
-            {/* ── Top Row: Scenario Trigger Cards ── */}
-            <div>
-              <div
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>
+                RECENT INCIDENT TIMELINE
+              </span>
+              <button
+                onClick={() => handleOpenDrawerTab('timeline')}
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 8,
+                  background: 'none',
+                  border: 'none',
+                  color: '#00d4ff',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  fontSize: 8,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  padding: 0,
                 }}
               >
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono, monospace)',
-                    fontSize: 8.5,
-                    letterSpacing: '0.15em',
-                    color: 'rgba(255,255,255,0.4)',
-                  }}
-                >
-                  INJECT SIMULATED FAULT SCENARIO (MULTI-SUBSYSTEM DANGER SIMULATOR):
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono, monospace)',
-                    fontSize: 8,
-                    color: 'rgba(0, 212, 255, 0.7)',
-                  }}
-                >
-                  Independent evaluation: Detector evaluates telemetry thresholds and trends automatically
-                </span>
-              </div>
+                VIEW ALL EVENTS ({blackBox.length}) ➔
+              </button>
+            </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(7, 1fr)',
-                  gap: 8,
-                }}
-              >
-                {THREATS.map((threat) => {
-                  const isActive = activeThreats.some((t) => t.type === threat.id || t.id === threat.id);
-                  const isTriggering = triggered === threat.id;
-                  const disabled = activeThreats.length > 0 && !isActive;
-
-                  return (
-                    <motion.div
-                      key={threat.id}
-                      whileHover={!disabled && !isActive ? { scale: 1.02, y: -2 } : {}}
-                      onClick={() => !disabled && !isActive && handleTrigger(threat)}
-                      onMouseEnter={() => setHoveredId(threat.id)}
-                      onMouseLeave={() => setHoveredId(null)}
-                      style={{
-                        padding: '10px 8px',
-                        background: isActive
-                          ? `rgba(${
-                              threat.color === '#ff2d55'
-                                ? '255,45,85'
-                                : threat.color === '#ff8c00'
-                                ? '255,140,0'
-                                : '155,93,229'
-                            }, 0.15)`
-                          : 'rgba(5, 14, 30, 0.65)',
-                        border: `1px solid ${isActive ? threat.color : 'rgba(255,255,255,0.08)'}`,
-                        borderRadius: 6,
-                        cursor: disabled ? 'not-allowed' : isActive ? 'default' : 'pointer',
-                        opacity: disabled ? 0.35 : 1,
-                        transition: 'all 0.2s',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 16, marginBottom: 4 }}>{threat.icon}</div>
-                        <div
-                          style={{
-                            fontFamily: 'var(--font-display, sans-serif)',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: isActive ? threat.color : '#fff',
-                            letterSpacing: '0.04em',
-                            marginBottom: 2,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {threat.name}
-                        </div>
-                        <div
-                          style={{
-                            fontFamily: 'var(--font-mono, monospace)',
-                            fontSize: 7.5,
-                            color: 'rgba(255,255,255,0.4)',
-                            lineHeight: 1.25,
-                            marginBottom: 6,
-                            height: 26,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {threat.description}
-                        </div>
-                      </div>
-
-                      <div
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {recentEvents.length > 0 ? (
+                recentEvents.map((evt, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => handleOpenDrawerTab('timeline')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: 8.5,
+                      fontFamily: 'var(--font-mono, monospace)',
+                      padding: '2px 0',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <span style={{ color: 'rgba(255,255,255,0.4)' }}>
+                        {new Date(evt.timestamp).toLocaleTimeString([], { hour12: false })}
+                      </span>
+                      <span
                         style={{
-                          padding: '3px 0',
-                          background: isActive
-                            ? threat.color
-                            : 'rgba(255,255,255,0.05)',
-                          border: `1px solid ${isActive ? threat.color : 'rgba(255,255,255,0.1)'}`,
-                          borderRadius: 4,
-                          fontFamily: 'var(--font-mono, monospace)',
-                          fontSize: 7.5,
-                          color: isActive ? '#000' : threat.color,
-                          textAlign: 'center',
+                          color: evt.severity === 'critical' ? '#ff2d55' : evt.severity === 'warning' ? '#ff9500' : '#00d4ff',
                           fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: 180,
                         }}
                       >
-                        {isActive ? 'ACTIVE' : isTriggering ? 'ARMING...' : 'TRIGGER'}
-                      </div>
-                    </motion.div>
-                  );
-                })}
+                        {evt.description}
+                      </span>
+                    </div>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 7.5 }}>
+                      {evt.source || evt.eventType.toUpperCase()}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8, fontFamily: 'var(--font-mono, monospace)' }}>
+                  No telemetry anomalies recorded. System nominal.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Compact Vyom AI Action Bar */}
+          <div
+            style={{
+              background: 'rgba(5, 14, 30, 0.75)',
+              border: '1px solid rgba(155, 93, 229, 0.3)',
+              borderRadius: 6,
+              padding: '8px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <span style={{ fontSize: 18 }}>🤖</span>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8, color: '#9b5de5', fontWeight: 700 }}>
+                  VYOM AI DIAGNOSTIC ENGINE
+                </div>
+                <div style={{ fontFamily: 'var(--font-body, sans-serif)', fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 1 }}>
+                  Explainable root-cause &amp; mitigation reasoning ready.
+                </div>
               </div>
             </div>
 
-            {/* ── Middle Row: Live Telemetry Graph & Evidence Panel (Split 50/50) ── */}
-            <div
+            <button
+              onClick={() => handleOpenDrawerTab('ai')}
               style={{
-                display: 'grid',
-                gridTemplateColumns: '1.2fr 1fr',
-                gap: 12,
-                minHeight: 380,
+                background: 'rgba(155, 93, 229, 0.2)',
+                border: '1px solid #9b5de5',
+                borderRadius: 4,
+                padding: '6px 10px',
+                color: '#fff',
+                fontFamily: 'var(--font-mono, monospace)',
+                fontSize: 8.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                letterSpacing: '0.04em',
+                flexShrink: 0,
               }}
             >
-              {/* Telemetry Graph with threshold lines and detection markers */}
-              <div style={{ minWidth: 0, height: '100%' }}>
-                <TelemetryAnomalyGraph
-                  selectedParamId={selectedParamId}
-                  onSelectParamId={setSelectedParamId}
-                  activeAnomaly={selectedAnomaly || undefined}
-                />
+              ASK VYOM AI ➔
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── 2. RIGHT-SIDE TECHNICAL DETAILS DRAWER ─── */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <motion.div
+            initial={{ opacity: 0, x: 80 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 80 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 56,
+              width: 'min(560px, 92vw)',
+              background: 'rgba(2, 6, 16, 0.96)',
+              backdropFilter: 'blur(20px)',
+              borderLeft: '1px solid rgba(0, 212, 255, 0.3)',
+              boxShadow: '-10px 0 40px rgba(0, 0, 0, 0.8)',
+              display: 'flex',
+              flexDirection: 'column',
+              zIndex: 100,
+              color: '#fff',
+            }}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: 'rgba(5, 14, 30, 0.9)',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8, color: '#00d4ff', letterSpacing: '0.15em' }}>
+                  TECHNICAL INVESTIGATION DOSSIER
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display, sans-serif)',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#fff',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {inspectedThreat ? inspectedThreat.name : selectedAnomaly ? `${selectedAnomaly.parameterName} Anomaly` : 'Telemetry Diagnostics'}
+                </div>
               </div>
 
-              {/* Anomaly Detection & Evidence Panel */}
-              <div style={{ minWidth: 0, height: '100%', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {inspectedThreat && (
+                  <button
+                    onClick={() => handleTrigger(inspectedThreat)}
+                    style={{
+                      background: 'rgba(255, 45, 85, 0.2)',
+                      border: '1px solid #ff2d55',
+                      borderRadius: 4,
+                      padding: '4px 8px',
+                      color: '#ff2d55',
+                      fontFamily: 'var(--font-mono, monospace)',
+                      fontSize: 8,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    TRIGGER FAULT
+                  </button>
+                )}
+                <button
+                  onClick={() => setDrawerOpen(false)}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: 4,
+                    color: '#fff',
+                    padding: '4px 8px',
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize: 9,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✕ CLOSE
+                </button>
+              </div>
+            </div>
+
+            {/* Drawer Tab Navigation */}
+            <div
+              style={{
+                display: 'flex',
+                background: 'rgba(5, 14, 30, 0.7)',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                padding: '0 8px',
+                overflowX: 'auto',
+              }}
+            >
+              {(
+                [
+                  { id: 'overview', label: 'OVERVIEW' },
+                  { id: 'evidence', label: 'EVIDENCE' },
+                  { id: 'detection', label: 'DETECTION' },
+                  { id: 'timeline', label: 'TIMELINE' },
+                  { id: 'ai', label: 'VYOM AI' },
+                  { id: 'what_if', label: 'WHAT-IF' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setDrawerTab(tab.id)}
+                  style={{
+                    padding: '8px 12px',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: drawerTab === tab.id ? '2px solid #00d4ff' : '2px solid transparent',
+                    color: drawerTab === tab.id ? '#00d4ff' : 'rgba(255, 255, 255, 0.6)',
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize: 8.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Drawer Body (Scrollable independently) */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+              }}
+            >
+              {/* TAB 1: OVERVIEW */}
+              {drawerTab === 'overview' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {inspectedThreat && (
+                    <div
+                      style={{
+                        padding: '12px',
+                        background: 'rgba(5, 14, 30, 0.8)',
+                        border: `1px solid ${inspectedThreat.color}`,
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 20 }}>{inspectedThreat.icon}</span>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-display, sans-serif)', fontSize: 13, fontWeight: 700, color: '#fff' }}>
+                            {inspectedThreat.name}
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8, color: inspectedThreat.color }}>
+                            SEVERITY: {inspectedThreat.severity.toUpperCase()}
+                          </div>
+                        </div>
+                      </div>
+                      <p style={{ fontFamily: 'var(--font-body, sans-serif)', fontSize: 10, color: 'rgba(255,255,255,0.7)', margin: 0, lineHeight: 1.45 }}>
+                        {inspectedThreat.description}
+                      </p>
+                    </div>
+                  )}
+
+                  <div
+                    style={{
+                      padding: '12px',
+                      background: 'rgba(5, 14, 30, 0.6)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8.5, color: '#00d4ff', marginBottom: 8 }}>
+                      SUBSYSTEM SPECIFICATIONS
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 9 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.45)' }}>Target Hardware:</span>
+                        <span style={{ color: '#fff' }}>
+                          {inspectedThreat ? inspectedThreat.affectedSubsystem : selectedAnomaly?.affectedSubsystem || 'General Bus'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.45)' }}>Monitored Parameter:</span>
+                        <span style={{ color: '#00d4ff', fontFamily: 'var(--font-mono, monospace)' }}>
+                          {inspectedThreat ? inspectedThreat.primaryParamId : selectedAnomaly?.parameterId || selectedParamId}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.45)' }}>Failure Propagation:</span>
+                        <span style={{ color: 'rgba(255,255,255,0.8)' }}>
+                          Cascading bus degradation modeled via 10Hz physics loop.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedAnomaly && (
+                    <div
+                      style={{
+                        padding: '12px',
+                        background: 'rgba(5, 14, 30, 0.6)',
+                        border: '1px solid rgba(0, 255, 136, 0.2)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8.5, color: '#00ff88', marginBottom: 6 }}>
+                        RECOMMENDED MITIGATION PLAYBOOK
+                      </div>
+                      <p style={{ fontFamily: 'var(--font-body, sans-serif)', fontSize: 9.5, color: 'rgba(255,255,255,0.7)', margin: 0, lineHeight: 1.4 }}>
+                        {selectedAnomaly.recommendedAction}
+                      </p>
+                      <button
+                        onClick={handleInitiateRecovery}
+                        style={{
+                          marginTop: 10,
+                          padding: '6px 12px',
+                          background: 'rgba(0, 255, 136, 0.2)',
+                          border: '1px solid #00ff88',
+                          borderRadius: 4,
+                          color: '#00ff88',
+                          fontFamily: 'var(--font-mono, monospace)',
+                          fontSize: 8.5,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ⚡ EXECUTE MITIGATION SEQUENCE
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: EVIDENCE */}
+              {drawerTab === 'evidence' && (
                 <AnomalyEvidencePanel
                   anomaly={selectedAnomaly || undefined}
                   onInitiateRecovery={handleInitiateRecovery}
-                  onAskAI={() => setActiveTab('anomaly_detection')}
+                  onAskAI={() => setDrawerTab('ai')}
                 />
-              </div>
-            </div>
+              )}
 
-            {/* ── Bottom Row: Anomaly Timeline Log & Vyom AI Explainer (Split 50/50) ── */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 12,
-                minHeight: 320,
-              }}
-            >
-              {/* 10-Stage Progression Timeline Log */}
-              <div style={{ minWidth: 0, height: '100%' }}>
+              {/* TAB 3: DETECTION */}
+              {drawerTab === 'detection' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div
+                    style={{
+                      padding: '12px',
+                      background: 'rgba(5, 14, 30, 0.8)',
+                      border: '1px solid rgba(0, 212, 255, 0.2)',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8.5, color: '#00d4ff', marginBottom: 6 }}>
+                      DETECTION PIPELINE RULES &amp; CRITERIA
+                    </div>
+                    <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
+                      Telemetry signals are evaluated continuously through a 3-tier detection stack:
+                      <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                        <li>1. <strong>Deterministic Thresholds:</strong> Hard warning and critical boundaries defined by space mission flight rules.</li>
+                        <li>2. <strong>Z-Score Statistical Isolation:</strong> Moving variance window detection for rate-of-change spikes.</li>
+                        <li>3. <strong>Kalman Residual Testing:</strong> Divergence from expected orbital state dynamics.</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {selectedAnomaly && (
+                    <div
+                      style={{
+                        padding: '12px',
+                        background: 'rgba(5, 14, 30, 0.6)',
+                        border: '1px solid rgba(255, 45, 85, 0.2)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 8.5, color: '#ff2d55', marginBottom: 8 }}>
+                        ACTIVE ANOMALY DETECTION ARTIFACTS
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 9 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'rgba(255,255,255,0.45)' }}>Detection Method:</span>
+                          <span style={{ color: '#00d4ff', fontFamily: 'var(--font-mono, monospace)' }}>
+                            {selectedAnomaly.detectionMethod.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'rgba(255,255,255,0.45)' }}>Detection Timestamp:</span>
+                          <span style={{ color: '#fff', fontFamily: 'var(--font-mono, monospace)' }}>
+                            {new Date(selectedAnomaly.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'rgba(255,255,255,0.45)' }}>Confidence Rating:</span>
+                          <span style={{ color: '#00ff88', fontWeight: 700 }}>
+                            {Math.round(selectedAnomaly.confidence * 100)}%
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'rgba(255,255,255,0.45)' }}>Current Status:</span>
+                          <span style={{ color: selectedAnomaly.status === 'resolved' ? '#00ff88' : '#ff2d55', fontWeight: 700 }}>
+                            {selectedAnomaly.status.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 4: TIMELINE */}
+              {drawerTab === 'timeline' && (
                 <AnomalyTimelineLog
                   anomaly={selectedAnomaly || undefined}
                   allAnomalies={anomalies}
@@ -668,227 +1273,28 @@ export function ScenariosScreen() {
                     setSelectedParamId(a.parameterId);
                   }}
                 />
-              </div>
+              )}
 
-              {/* Vyom AI Anomaly Explainer with Deterministic Fallback */}
-              <div style={{ minWidth: 0, height: '100%' }}>
+              {/* TAB 5: VYOM AI */}
+              {drawerTab === 'ai' && (
                 <VyomAIAnomalyExplainer
                   selectedAnomaly={selectedAnomaly || undefined}
                   onSelectParam={(paramId) => setSelectedParamId(paramId)}
                 />
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Tab 2: Mission What-If, Comparison, and Incident Logs */
-          <div
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '16px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-            }}
-          >
-            {/* AI vs Manual Performance Card */}
-            <div
-              style={{
-                padding: '14px 18px',
-                background: 'rgba(5, 14, 30, 0.75)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8,
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono, monospace)',
-                  fontSize: 9,
-                  color: 'rgba(0,212,255,0.7)',
-                  letterSpacing: '0.1em',
-                  marginBottom: 10,
-                }}
-              >
-                📊 AI GUARDIAN VS MANUAL OPERATOR RECOVERY BENCHMARK
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    background: 'rgba(0, 255, 136, 0.05)',
-                    border: '1px solid rgba(0, 255, 136, 0.2)',
-                    borderRadius: 6,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono, monospace)',
-                      fontSize: 8,
-                      color: 'rgba(255,255,255,0.4)',
-                      marginBottom: 4,
-                    }}
-                  >
-                    VYOM AI GUARDIAN AVG RESOLUTION
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-display, sans-serif)',
-                      fontSize: 20,
-                      color: '#00ff88',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {incidents.filter((i) => i.recovery_mode === 'ai' && i.total_resolution_ms).length > 0
-                      ? (
-                          incidents
-                            .filter((i) => i.recovery_mode === 'ai' && i.total_resolution_ms)
-                            .reduce((a, b) => a + (b.total_resolution_ms || 0), 0) /
-                          incidents.filter((i) => i.recovery_mode === 'ai' && i.total_resolution_ms).length /
-                          1000
-                        ).toFixed(1) + 's'
-                      : '3.4s (Nominal)'}
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-body, sans-serif)', fontSize: 9.5, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                    Autonomous detection pipeline + closed-loop mitigation verification.
-                  </div>
+              )}
+
+              {/* TAB 6: WHAT-IF & BENCHMARK */}
+              {drawerTab === 'what_if' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <WhatIfComparison />
                 </div>
-
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    background: 'rgba(255, 140, 0, 0.05)',
-                    border: '1px solid rgba(255, 140, 0, 0.2)',
-                    borderRadius: 6,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono, monospace)',
-                      fontSize: 8,
-                      color: 'rgba(255,255,255,0.4)',
-                      marginBottom: 4,
-                    }}
-                  >
-                    MANUAL GROUND CONTROL AVG RESOLUTION
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-display, sans-serif)',
-                      fontSize: 20,
-                      color: '#ff8c00',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {incidents.filter((i) => i.recovery_mode === 'manual' && i.total_resolution_ms).length > 0
-                      ? (
-                          incidents
-                            .filter((i) => i.recovery_mode === 'manual' && i.total_resolution_ms)
-                            .reduce((a, b) => a + (b.total_resolution_ms || 0), 0) /
-                          incidents.filter((i) => i.recovery_mode === 'manual' && i.total_resolution_ms).length /
-                          1000
-                        ).toFixed(1) + 's'
-                      : '48.2s (Ground Station Uplink Latency)'}
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-body, sans-serif)', fontSize: 9.5, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                    Ground telemetry pass evaluation, flight director verification, and manual command queuing.
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
-
-            {/* WhatIf Comparison Component */}
-            <div
-              style={{
-                padding: '14px 18px',
-                background: 'rgba(5, 14, 30, 0.75)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8,
-              }}
-            >
-              <WhatIfComparison />
-            </div>
-
-            {/* Black Box Event History */}
-            <div
-              style={{
-                padding: '14px 18px',
-                background: 'rgba(5, 14, 30, 0.75)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8,
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono, monospace)',
-                  fontSize: 9,
-                  letterSpacing: '0.15em',
-                  color: 'rgba(255,255,255,0.4)',
-                  marginBottom: 8,
-                }}
-              >
-                RECORDED BLACK BOX TELEMETRY EVENTS
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
-                <AnimatePresence>
-                  {recentEvents.map((ev, idx) => (
-                    <motion.div
-                      key={`${ev.id || 'ev'}-${idx}`}
-                      initial={{ opacity: 0, x: 15 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      style={{
-                        padding: '8px 12px',
-                        background: 'rgba(0,0,0,0.3)',
-                        borderLeft: `3px solid ${
-                          ev.severity === 'critical'
-                            ? '#ff2d55'
-                            : ev.severity === 'warning'
-                            ? '#ff9500'
-                            : '#00ff88'
-                        }`,
-                        borderRadius: '0 6px 6px 0',
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontFamily: 'var(--font-mono, monospace)',
-                          fontSize: 7.5,
-                          color: 'rgba(255,255,255,0.35)',
-                          marginBottom: 2,
-                        }}
-                      >
-                        DAY {Math.floor(ev.missionDay)} · {ev.eventType.toUpperCase()} · {ev.source}
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: 'var(--font-body, sans-serif)',
-                          fontSize: 10,
-                          color: 'rgba(255,255,255,0.8)',
-                          lineHeight: 1.35,
-                        }}
-                      >
-                        {ev.description}
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                {recentEvents.length === 0 && (
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono, monospace)',
-                      fontSize: 10,
-                      color: 'rgba(255,255,255,0.25)',
-                      padding: 14,
-                      textAlign: 'center',
-                    }}
-                  >
-                    No black box events logged yet — trigger a scenario to observe flight recorder logging.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }
+
+export default ScenariosScreen;
