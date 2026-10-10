@@ -132,6 +132,28 @@ The FastAPI backend will start at **`http://localhost:8000`** with interactive A
 
 ---
 
+## 🚀 Deployment on Vercel
+
+The application is preconfigured for instant zero-configuration deployment on **Vercel** with full SPA rewrite routing support (`vercel.json`):
+
+### Option 1: Vercel Dashboard (Recommended)
+1. Go to **[vercel.com](https://vercel.com/)** and log in with your GitHub account.
+2. Click **Add New...** ➔ **Project**.
+3. Import your repository: **`siddhesh-377/VYOM-Satellite-Healthcare-Monitor-and-Anomaly-Detection`**.
+4. Framework Preset will auto-detect as **Vite**.
+5. Click **Deploy**. Your live URL will be ready in under a minute!
+
+### Option 2: Vercel CLI
+```bash
+# Install Vercel CLI globally
+npm i -g vercel
+
+# Deploy directly from terminal
+vercel
+```
+
+---
+
 ## ☁️ Deployment on Render
 
 This repository includes a native **`render.yaml`** Blueprint for one-click deployment:
